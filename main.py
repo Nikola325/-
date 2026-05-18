@@ -1,95 +1,127 @@
 import streamlit as st
-import pandas as pd
-from PIL import Image
-import pytesseract
-import re
-
-st.set_page_config(page_title="Сканер за Вредни Е-та", layout="wide")
-st.title("🔍 Сканер за Вредни Вещества в Продукти")
-st.markdown("**Качете снимка на етикета или въведете текст ръчно**")
-
-harmful_db = {
-    "Захар / Сиропи": ["захар", "захароза", "глюкозо-фруктозен сироп", "фруктоза", "глюкоза", "e420", "e421"],
-    "Палмово масло": ["палмово масло", "палмова мазнина", "palm oil"],
-    "Натриев нитрит": ["e250", "натриев нитрит", "натриев нитрат", "e251"],
-    "Аспартам": ["e951", "аспартам"],
-    "Натриев бензоат": ["e211", "натриев бензоат"],
-    "Мононатриев глутамат": ["e621", "глутамат", "msg"],
-    "Транс мазнини": ["частично хидрогенирани", "транс мазнини", "hydrogenated"],
-    "Изкуствени оцветители": ["e129", "allura red", "червено 40", "e102", "e110", "e124", "e133"],
-    "Калиев сорбат / сорбинова киселина": ["e202", "сорбат"],
-    "Сулфити": ["e220", "e221", "e222", "e223", "e224", "сулфит"],
-    "BHA / BHT": ["e320", "e321", "bha", "bht"],
+import numpy as np
+import easyocr
+from PIL import Image, ImageEnhance
+ 
+harmful_e_numbers = {
+    "E407": "Карагенан — възпаления, храносмилателни проблеми",
+    "E621": "Натриев глутамат — главоболие, алергии",
+    "E262": "Натриев ацетат — дразни стомаха",
+    "E300": "Аскорбинова киселина — в големи дози дразни стомаха",
+    "E330": "Лимонена киселина — уврежда зъбния емайл",
+    "E250": "Натриев нитрит — риск от онкологични заболявания",
+    "E952": "Цикламат — подсладител, забранен в някои страни",
+    "E471": "Емулгатор — може да наруши чревната микробиота",
+    "E472": "Емулгатор — може да наруши чревната микробиота",
+    "E450": "Дифосфати — нарушават калциево-фосфорния баланс",
+    "E102": "Тартразин — хиперактивност при деца, алергии",
+    "E110": "Жълто залез — алергии, хиперактивност",
+    "E124": "Понсо 4R — алергии, забранен в САЩ",
+    "E129": "Алура червено — хиперактивност при деца",
+    "E133": "Брилянтно синьо — алергии",
+    "E220": "Серен диоксид — алергии, астма",
+    "E221": "Натриев сулфит — алергии, астма",
+    "E320": "BHA — потенциално канцерогенен",
+    "E951": "Аспартам — спорно влияние върху здравето",
 }
+ 
+harmful_words = {
+    "палмово масло": "Насищени мазнини — вредно за сърцето",
+    "хидрогенирано": "Трансмазнини — вредни за сърдечно-съдовата система",
+    "фруктозен сироп": "Високо фруктозен царевичен сироп — затлъстяване, диабет",
+    "фосфат": "Фосфати — могат да влияят негативно на бъбреците",
+    "нитрат": "Нитрати — риск от канцерогени при преработка",
+    "нитрит": "Нитрити — риск от онкологични заболявания",
+    "консерван": "Консерванти — често съдържат нитрати или сулфити",
+    "лактоза": "Лактоза — може да причини стомашен дискомфорт при непоносимост",
+    "глутен": "Глутен — проблемен при целиакия и непоносимост",
+    "аспартам": "Аспартам — изкуствен подсладител, спорно влияние",
+}
+ 
+food_alternatives = {
+    "палмово масло": ["Зехтин или слънчогледово масло", "Кокосово масло в малки количества"],
+    "хидрогенирано": ["Масло, зехтин или авокадо като източници на мазнини"],
+    "нитрит": ["Прясно месо без добавки", "Домашно приготвени продукти"],
+    "нитрат": ["Органични меса без консерванти"],
+    "фруктозен сироп": ["Мед или кленов сироп", "Пресни плодове за подслаждане"],
+    "аспартам": ["Стевия като натурален подсладител", "Мед или кокосова захар"],
+    "лактоза": ["Растителни млека — бадемово, овесено, соево"],
+    "глутен": ["Ориз, царевица, елда, киноа"],
+}
+ 
+@st.cache_resource
+def get_reader():
+    return easyocr.Reader(["bg", "en"], gpu=False)
 
-def extract_text_from_image(image):
-    img = Image.open(image).convert('RGB')
-    text = pytesseract.image_to_string(img, lang='bul+eng')
-    return text.lower()
-
-def find_harmful_ingredients(text):
-    detected = []
+def fix_ocr_errors(text):
+    text = text.replace("[", "E")
+    return text
+ 
+def enhance_image(img):
+    img = img.convert("RGB")
+    img = ImageEnhance.Contrast(img).enhance(2.0)
+    img = ImageEnhance.Sharpness(img).enhance(2.0)
+    return img
+ 
+def extract_text(img):
+    reader = get_reader()
+    img_array = np.array(img)
+    results = reader.readtext(img_array, detail=0)
+    raw_text = " ".join(results)
+    return fix_ocr_errors(raw_text)
+ 
+def find_harmful(text):
+    text_upper = text.upper()
     text_lower = text.lower()
-    for category, keywords in harmful_db.items():
-        for keyword in keywords:
-            if keyword in text_lower:
-                match = re.search(r'.{0,30}' + re.escape(keyword) + r'.{0,30}', text_lower)
-                context = match.group(0) if match else keyword
-                detected.append({
-                    "Категория": category,
-                    "Открит термин": context.capitalize(),
-                    "E-номер/Вещество": keyword.upper() if keyword.startswith('e') else keyword
-                })
-                break
-    return detected
-
-col1, col2 = st.columns([3, 2])
-
-with col1:
-    uploaded_file = st.file_uploader("📸 Качи снимка на етикета", type=["jpg", "jpeg", "png"])
-    if uploaded_file:
-        image = Image.open(uploaded_file)
-        st.image(image, caption="Качена снимка", use_container_width=True)
-
-with col2:
-    manual_input = st.text_area("Или въведи съставките ръчно:", height=150,
-                                placeholder="Например: Вода, захар, глюкозо-фруктозен сироп, E211, палмово масло...")
-
-if st.button("🚀 Сканирай за вредни вещества", type="primary"):
-    text = ""
-    if uploaded_file:
-        with st.spinner("Извличане на текст от снимката..."):
-            text = extract_text_from_image(uploaded_file)
-            st.info(f"**Извлечен текст:**\n{text}")
-    elif manual_input.strip():
-        text = manual_input
+    found_e = {}
+    found_words = {}
+    for code, description in harmful_e_numbers.items():
+        if code.upper() in text_upper:
+            found_e[code] = description
+    for word, description in harmful_words.items():
+        if word.lower() in text_lower:
+            found_words[word] = description
+    return found_e, found_words
+ 
+def get_alternatives(found_words):
+    alternatives = []
+    for word in found_words:
+        if word in food_alternatives:
+            alternatives.extend(food_alternatives[word])
+    return list(set(alternatives))
+ 
+st.set_page_config(page_title="Скенер на етикети", layout="centered")
+st.title("Скенер на етикети")
+st.markdown("Качи снимка на хранителен етикет и ще открием вредните съставки.")
+ 
+uploaded_file = st.file_uploader("Качи изображение на етикет:", type=["jpg", "jpeg", "png", "webp"])
+ 
+if uploaded_file:
+    image = Image.open(uploaded_file)
+    st.image(image, caption="Качено изображение", use_container_width=True)
+ 
+    with st.spinner("Зареждаме AI модела и четем етикета..."):
+        enhanced = enhance_image(image)
+        text = extract_text(enhanced)
+     
+    found_e, found_words = find_harmful(text)
+ 
+    st.subheader("Открити вредни съставки:")
+    if found_e:
+        for code, desc in found_e.items():
+            st.error(f"**{code}** — {desc}")
     else:
-        st.warning("Моля качете снимка или въведете текст.")
-        st.stop()
-
-    if text:
-        detected = find_harmful_ingredients(text)
-        if detected:
-            st.error("⚠️ **НАМЕРЕНИ ВРЕДНИ ВЕЩЕСТВА!**")
-            df = pd.DataFrame(detected)
-            st.dataframe(df, use_container_width=True, hide_index=True)
-            st.subheader("Препоръки:")
-            st.markdown("""
-            - Избягвай честата консумация на този продукт
-            - Търси алтернативи без тези добавки
-            - Особено внимавай ако има **E250, E621, транс мазнини или много захар**
-            """)
-        else:
-            st.success("✅ Не са открити вредни вещества от базата.")
-            st.info("Въпреки това винаги чети внимателно етикета – базата не е изчерпателна.")
-
-st.sidebar.header("ℹ️ За приложението")
-st.sidebar.info("""
-Това е локално Streamlit приложение, което:
-- Използва **Tesseract OCR** за разпознаване на български и английски текст
-- Търси най-често срещаните вредни добавки
-""")
-st.sidebar.markdown("### Примери за тестване:")
-st.sidebar.code("""Кока-Кола
-Чипс с палмово масло и E621
-Колбас с E250, E621, нитрит""")
+        st.success("Няма открити Е-та.")
+ 
+    st.subheader("Засечени съставки: ")
+    if found_words:
+        for word, desc in found_words.items():
+            st.warning(f"{word} — {desc}")
+    else:
+        st.success("Няма засечени проблемни съставки.")
+ 
+    alternatives = get_alternatives(found_words)
+    if alternatives:
+        st.subheader("Алтернативи:")
+        for alt in alternatives:
+            st.info(f"{alt}")
