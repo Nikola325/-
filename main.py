@@ -1,24 +1,15 @@
 import streamlit as st
 import pandas as pd
 from PIL import Image
-import easyocr
+import pytesseract
 import re
 
-# ==================== НАСТРОЙКИ ====================
 st.set_page_config(page_title="Сканер за Вредни Е-та", layout="wide")
 st.title("🔍 Сканер за Вредни Вещества в Продукти")
 st.markdown("**Качете снимка на етикета или въведете текст ръчно**")
 
-# Инициализация на OCR (изтегля модела при първо стартиране)
-@st.cache_resource
-def load_ocr():
-    return easyocr.Reader(['bg', 'en'], gpu=False)
-
-reader = load_ocr()
-
-# ==================== БАЗА ДАННИ ====================
 harmful_db = {
-    "Захар / Сиропи": ["захар", "захароза", "глюкозо-фруктозен сироп", "фруктоза", "глюкоза", "E420", "E421"],
+    "Захар / Сиропи": ["захар", "захароза", "глюкозо-фруктозен сироп", "фруктоза", "глюкоза", "e420", "e421"],
     "Палмово масло": ["палмово масло", "палмова мазнина", "palm oil"],
     "Натриев нитрит": ["e250", "натриев нитрит", "натриев нитрат", "e251"],
     "Аспартам": ["e951", "аспартам"],
@@ -31,21 +22,18 @@ harmful_db = {
     "BHA / BHT": ["e320", "e321", "bha", "bht"],
 }
 
-# ==================== ФУНКЦИИ ====================
 def extract_text_from_image(image):
     img = Image.open(image).convert('RGB')
-    result = reader.readtext(img, detail=0, paragraph=True)
-    text = " ".join(result).lower()
-    return text
+    text = pytesseract.image_to_string(img, lang='bul+eng')
+    return text.lower()
 
 def find_harmful_ingredients(text):
     detected = []
     text_lower = text.lower()
-    
     for category, keywords in harmful_db.items():
         for keyword in keywords:
             if keyword in text_lower:
-                match = re.search(r'\b.{0,30}' + re.escape(keyword) + r'.{0,30}\b', text_lower)
+                match = re.search(r'.{0,30}' + re.escape(keyword) + r'.{0,30}', text_lower)
                 context = match.group(0) if match else keyword
                 detected.append({
                     "Категория": category,
@@ -55,24 +43,20 @@ def find_harmful_ingredients(text):
                 break
     return detected
 
-# ==================== ИНТЕРФЕЙС ====================
 col1, col2 = st.columns([3, 2])
 
 with col1:
     uploaded_file = st.file_uploader("📸 Качи снимка на етикета", type=["jpg", "jpeg", "png"])
-    
     if uploaded_file:
         image = Image.open(uploaded_file)
         st.image(image, caption="Качена снимка", use_container_width=True)
 
 with col2:
-    manual_input = st.text_area("Или въведи съставките ръчно:", height=150, 
-                               placeholder="Например: Вода, захар, глюкозо-фруктозен сироп, E211, палмово масло...")
+    manual_input = st.text_area("Или въведи съставките ръчно:", height=150,
+                                placeholder="Например: Вода, захар, глюкозо-фруктозен сироп, E211, палмово масло...")
 
-# ==================== СКАНИРАНЕ ====================
 if st.button("🚀 Сканирай за вредни вещества", type="primary"):
     text = ""
-    
     if uploaded_file:
         with st.spinner("Извличане на текст от снимката..."):
             text = extract_text_from_image(uploaded_file)
@@ -85,13 +69,10 @@ if st.button("🚀 Сканирай за вредни вещества", type="p
 
     if text:
         detected = find_harmful_ingredients(text)
-        
         if detected:
             st.error("⚠️ **НАМЕРЕНИ ВРЕДНИ ВЕЩЕСТВА!**")
-            
             df = pd.DataFrame(detected)
             st.dataframe(df, use_container_width=True, hide_index=True)
-            
             st.subheader("Препоръки:")
             st.markdown("""
             - Избягвай честата консумация на този продукт
@@ -102,19 +83,13 @@ if st.button("🚀 Сканирай за вредни вещества", type="p
             st.success("✅ Не са открити вредни вещества от базата.")
             st.info("Въпреки това винаги чети внимателно етикета – базата не е изчерпателна.")
 
-# ==================== СТРАНИЧНА ЛЕНТА ====================
 st.sidebar.header("ℹ️ За приложението")
 st.sidebar.info("""
 Това е локално Streamlit приложение, което:
-- Използва **EasyOCR** за разпознаване на български и английски текст
+- Използва **Tesseract OCR** за разпознаване на български и английски текст
 - Търси най-често срещаните вредни добавки
 """)
-
 st.sidebar.markdown("### Примери за тестване:")
 st.sidebar.code("""Кока-Кола
 Чипс с палмово масло и E621
 Колбас с E250, E621, нитрит""")
-
-st.sidebar.markdown("### Инсталация:")
-st.sidebar.code("""pip install streamlit easyocr pillow pandas opencv-python-headless
-streamlit run app.py""", language="bash")
