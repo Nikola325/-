@@ -45,7 +45,6 @@ def find_harmful_ingredients(text):
     for category, keywords in harmful_db.items():
         for keyword in keywords:
             if keyword in text_lower:
-                # Намиране на контекста
                 match = re.search(r'\b.{0,30}' + re.escape(keyword) + r'.{0,30}\b', text_lower)
                 context = match.group(0) if match else keyword
                 detected.append({
@@ -53,7 +52,7 @@ def find_harmful_ingredients(text):
                     "Открит термин": context.capitalize(),
                     "E-номер/Вещество": keyword.upper() if keyword.startswith('e') else keyword
                 })
-                break  # за да не дублираме една и съща категория
+                break
     return detected
 
 # ==================== ИНТЕРФЕЙС ====================
@@ -64,7 +63,7 @@ with col1:
     
     if uploaded_file:
         image = Image.open(uploaded_file)
-        st.image(image, caption="Качена снимка", use_column_width=True)
+        st.image(image, caption="Качена снимка", use_container_width=True)
 
 with col2:
     manual_input = st.text_area("Или въведи съставките ръчно:", height=150, 
@@ -116,7 +115,6 @@ st.sidebar.code("""Кока-Кола
 Чипс с палмово масло и E621
 Колбас с E250, E621, нитрит""")
 
-# Инсталация (за потребителя)
 st.sidebar.markdown("### Инсталация:")
-st.sidebar.code("""pip install streamlit easyocr pillow pandas
+st.sidebar.code("""pip install streamlit easyocr pillow pandas opencv-python-headless
 streamlit run app.py""", language="bash")
